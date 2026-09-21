@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
-import { questions } from './data/questions';
+import { questions, Question } from './data/questions';
 
 type Screen = 'welcome' | 'share' | 'quiz' | 'result';
 
@@ -13,12 +13,26 @@ function generateSessionCode(): string {
   return code;
 }
 
+function shuffleArray<T>(array: T[]): T[] {
+  const shuffled = [...array];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+}
+
+function getRandomQuestions(count: number): Question[] {
+  return shuffleArray(questions).slice(0, count);
+}
+
 function App() {
   const [screen, setScreen] = useState<Screen>('welcome');
+  const [testQuestions, setTestQuestions] = useState<Question[]>([]);
   const [currentQuestion, setCurrentQuestion] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
   const [showExplanation, setShowExplanation] = useState(false);
-  const [answers, setAnswers] = useState<(number | null)[]>(new Array(questions.length).fill(null));
+  const [answers, setAnswers] = useState<(number | null)[]>([]);
   const [score, setScore] = useState(0);
   const [userName, setUserName] = useState('');
   const [timeLeft, setTimeLeft] = useState(0);
@@ -28,12 +42,13 @@ function App() {
   const [copied, setCopied] = useState(false);
   const [showExport, setShowExport] = useState(false);
   const [groupNumber, setGroupNumber] = useState('');
+  const [startTime, setStartTime] = useState<Date | null>(null);
+  const [endTime, setEndTime] = useState<Date | null>(null);
   const resultRef = useRef<HTMLDivElement>(null);
 
   const QUESTIONS_PER_TEST = 20;
   const TIME_PER_QUESTION = 60;
 
-  // Get current URL for sharing
   const currentUrl = typeof window !== 'undefined' ? window.location.href : '';
 
   useEffect(() => {
@@ -51,15 +66,19 @@ function App() {
 
   const startQuiz = () => {
     if (!userName.trim()) return;
+    const randomQs = getRandomQuestions(QUESTIONS_PER_TEST);
+    setTestQuestions(randomQs);
+    setAnswers(new Array(QUESTIONS_PER_TEST).fill(null));
     setScreen('quiz');
     setCurrentQuestion(0);
     setSelectedAnswer(null);
     setShowExplanation(false);
-    setAnswers(new Array(questions.length).fill(null));
     setScore(0);
     setTimeLeft(TIME_PER_QUESTION);
     setTotalTime(0);
     setTimerActive(true);
+    setStartTime(new Date());
+    setEndTime(null);
   };
 
   const handleAnswerSelect = (index: number) => {
@@ -74,7 +93,7 @@ function App() {
     if (selectedAnswer === null) return;
     setShowExplanation(true);
     setTimerActive(false);
-    if (selectedAnswer === questions[currentQuestion].correctAnswer) {
+    if (selectedAnswer === testQuestions[currentQuestion].correctAnswer) {
       setScore((prev) => prev + 1);
     }
   };
@@ -88,6 +107,7 @@ function App() {
       setTimerActive(true);
     } else {
       setTimerActive(false);
+      setEndTime(new Date());
       setScreen('result');
     }
   };
@@ -97,11 +117,13 @@ function App() {
     setCurrentQuestion(0);
     setSelectedAnswer(null);
     setShowExplanation(false);
-    setAnswers(new Array(questions.length).fill(null));
+    setAnswers([]);
     setScore(0);
     setUserName('');
     setTotalTime(0);
     setGroupNumber('');
+    setStartTime(null);
+    setEndTime(null);
   };
 
   const copyLink = () => {
@@ -109,7 +131,6 @@ function App() {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }).catch(() => {
-      // Fallback
       const textArea = document.createElement('textarea');
       textArea.value = currentUrl;
       document.body.appendChild(textArea);
@@ -121,73 +142,122 @@ function App() {
     });
   };
 
-  const getExportText = () => {
+  const generateReportText = () => {
     const { grade } = getGrade();
     const percentage = Math.round((score / QUESTIONS_PER_TEST) * 100);
-    const date = new Date().toLocaleString('ru-RU');
-    
-    let text = `═══════════════════════════════════════\n`;
-    text += `  РЕЗУЛЬТАТЫ ТЕСТИРОВАНИЯ\n`;
-    text += `═══════════════════════════════════════\n\n`;
-    text += `Тема: Нормативное обеспечение\n`;
-    text += `функциональной безопасности\n\n`;
-    text += `Программа: Проектирование, эксплуатация\n`;
-    text += `и обслуживание оборудования систем ПАЗ\n\n`;
-    text += `───────────────────────────────────────\n`;
-    text += `ФИО: ${userName}\n`;
-    text += `Группа: ${groupNumber || 'не указана'}\n`;
-    text += `Код сессии: ${sessionCode}\n`;
-    text += `Дата: ${date}\n`;
-    text += `───────────────────────────────────────\n\n`;
-    text += `Результат: ${score}/${QUESTIONS_PER_TEST} (${percentage}%)\n`;
-    text += `Оценка: ${grade}\n`;
-    text += `Время: ${formatTime(totalTime)}\n\n`;
-    text += `───────────────────────────────────────\n`;
+    const startStr = startTime ? startTime.toLocaleString('ru-RU', {
+      day: '2-digit', month: '2-digit', year: 'numeric',
+      hour: '2-digit', minute: '2-digit', second: '2-digit'
+    }) : '—';
+    const endStr = endTime ? endTime.toLocaleString('ru-RU', {
+      day: '2-digit', month: '2-digit', year: 'numeric',
+      hour: '2-digit', minute: '2-digit', second: '2-digit'
+    }) : '—';
+
+    let text = `════════════════════════════════════════════════\n`;
+    text += `     ОТЧЁТ О РЕЗУЛЬТАТАХ ТЕСТИРОВАНИЯ\n`;
+    text += `════════════════════════════════════════════════\n\n`;
+    text += `ТЕМА:\n`;
+    text += `  Нормативное обеспечение функциональной\n`;
+    text += `  безопасности\n\n`;
+    text += `ПРОГРАММА:\n`;
+    text += `  Проектирование, эксплуатация и обслуживание\n`;
+    text += `  оборудования систем противоаварийной\n`;
+    text += `  автоматической защиты (ПАЗ)\n\n`;
+    text += `────────────────────────────────────────────────\n`;
+    text += `ИНФОРМАЦИЯ ОБ УЧАСТНИКЕ:\n`;
+    text += `────────────────────────────────────────────────\n`;
+    text += `  ФИО:          ${userName}\n`;
+    text += `  Группа:       ${groupNumber || 'не указана'}\n`;
+    text += `  Код сессии:   ${sessionCode}\n`;
+    text += `  Всего вопросов в базе: ${questions.length}\n`;
+    text += `  Вопросов в тесте: ${QUESTIONS_PER_TEST} (выбраны случайно)\n\n`;
+    text += `────────────────────────────────────────────────\n`;
+    text += `АСТРОНОМИЧЕСКОЕ ВРЕМЯ:\n`;
+    text += `────────────────────────────────────────────────\n`;
+    text += `  Начало теста:   ${startStr}\n`;
+    text += `  Окончание:      ${endStr}\n`;
+    text += `  Затрачено:      ${formatTime(totalTime)}\n`;
+    text += `  Ср. на вопрос:  ${formatTime(Math.round(totalTime / QUESTIONS_PER_TEST))}\n\n`;
+    text += `────────────────────────────────────────────────\n`;
+    text += `РЕЗУЛЬТАТ:\n`;
+    text += `────────────────────────────────────────────────\n`;
+    text += `  Правильных ответов: ${score} из ${QUESTIONS_PER_TEST}\n`;
+    text += `  Процент:            ${percentage}%\n`;
+    text += `  Оценка:             ${grade}\n`;
+    text += `  Статус:             ${percentage >= 60 ? 'ТЕСТ ПРОЙДЕН ✓' : 'ТЕСТ НЕ ПРОЙДЕН ✗'}\n\n`;
+    text += `────────────────────────────────────────────────\n`;
     text += `ДЕТАЛИЗАЦИЯ ОТВЕТОВ:\n`;
-    text += `───────────────────────────────────────\n\n`;
-    
-    questions.slice(0, QUESTIONS_PER_TEST).forEach((q, idx) => {
+    text += `────────────────────────────────────────────────\n\n`;
+
+    testQuestions.forEach((q, idx) => {
       const isCorrect = answers[idx] === q.correctAnswer;
-      text += `${idx + 1}. ${isCorrect ? '✓' : '✗'} ${q.question}\n`;
-      text += `   Ваш ответ: ${answers[idx] !== null ? q.options[answers[idx]] : 'нет ответа'}\n`;
+      text += `Вопрос ${idx + 1}. ${isCorrect ? '[✓]' : '[✗]'}\n`;
+      text += `${q.question}\n\n`;
+      q.options.forEach((opt, optIdx) => {
+        const marker = optIdx === q.correctAnswer ? '>>>' : '   ';
+        const userMarker = optIdx === answers[idx] ? ' (ваш ответ)' : '';
+        text += `${marker} ${String.fromCharCode(65 + optIdx)}) ${opt}${userMarker}\n`;
+      });
       if (!isCorrect) {
-        text += `   Правильный: ${q.options[q.correctAnswer]}\n`;
+        text += `\n  Правильный ответ: ${String.fromCharCode(65 + q.correctAnswer)}) ${q.options[q.correctAnswer]}\n`;
       }
-      text += `\n`;
+      text += `\n  Пояснение: ${q.explanation}\n`;
+      text += `\n${'─'.repeat(48)}\n\n`;
     });
-    
-    text += `═══════════════════════════════════════\n`;
+
+    text += `════════════════════════════════════════════════\n`;
+    text += `  Отчёт сформирован: ${new Date().toLocaleString('ru-RU')}\n`;
+    text += `════════════════════════════════════════════════\n`;
     return text;
   };
 
-  const exportResults = () => {
-    const text = getExportText();
+  const createReportFile = (): File => {
+    const text = generateReportText();
     const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
+    const fileName = `Отчет_тест_${sessionCode}_${userName.replace(/\s+/g, '_')}.txt`;
+    return new File([blob], fileName, { type: 'text/plain' });
+  };
+
+  const shareReportFile = async () => {
+    const file = createReportFile();
+
+    // Try Web Share API with files first
+    if ('canShare' in navigator && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({
+          title: 'Отчёт о результатах тестирования',
+          text: `Результат теста: ${userName} — ${score}/${QUESTIONS_PER_TEST} (${getGrade().grade})`,
+          files: [file]
+        });
+        return;
+      } catch (err) {
+        // User cancelled or share failed
+        if ((err as Error).name === 'AbortError') return;
+      }
+    }
+
+    // Fallback: download the file
+    const url = URL.createObjectURL(file);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `Результат_теста_${sessionCode}_${userName.replace(/\s+/g, '_')}.txt`;
+    a.download = file.name;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   };
 
-  const shareResults = () => {
-    const text = `Результат теста по функциональной безопасности:\n${userName} — ${score}/${QUESTIONS_PER_TEST} (${getGrade().grade})`;
-    
-    if (navigator.share) {
-      navigator.share({
-        title: 'Результат теста',
-        text: text,
-        url: currentUrl
-      }).catch(() => {});
-    } else {
-      navigator.clipboard.writeText(`${text}\n${currentUrl}`).then(() => {
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-      });
-    }
+  const exportResults = () => {
+    const file = createReportFile();
+    const url = URL.createObjectURL(file);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = file.name;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   const getGrade = () => {
@@ -230,7 +300,8 @@ function App() {
             <div className="bg-white/5 rounded-2xl p-3 sm:p-4 mb-4 border border-white/10">
               <h3 className="text-white font-semibold text-xs sm:text-sm mb-2">📌 Информация о тесте:</h3>
               <ul className="text-blue-100 text-xs space-y-1">
-                <li>• Количество вопросов: {QUESTIONS_PER_TEST}</li>
+                <li>• База вопросов: {questions.length} вопросов</li>
+                <li>• В тесте: {QUESTIONS_PER_TEST} вопросов (случайный выбор)</li>
                 <li>• Время на вопрос: {TIME_PER_QUESTION} секунд</li>
                 <li>• Проходной балл: 60%</li>
                 <li>• Темы: МЭК 61508, МЭК 61511, SIL, ПАЗ</li>
@@ -416,7 +487,7 @@ function App() {
 
   // Quiz Screen
   if (screen === 'quiz') {
-    const question = questions[currentQuestion];
+    const question = testQuestions[currentQuestion];
     const progress = ((currentQuestion + 1) / QUESTIONS_PER_TEST) * 100;
 
     return (
@@ -535,6 +606,14 @@ function App() {
   if (screen === 'result') {
     const { grade, color, emoji } = getGrade();
     const percentage = Math.round((score / QUESTIONS_PER_TEST) * 100);
+    const startStr = startTime ? startTime.toLocaleString('ru-RU', {
+      day: '2-digit', month: '2-digit', year: 'numeric',
+      hour: '2-digit', minute: '2-digit', second: '2-digit'
+    }) : '—';
+    const endStr = endTime ? endTime.toLocaleString('ru-RU', {
+      day: '2-digit', month: '2-digit', year: 'numeric',
+      hour: '2-digit', minute: '2-digit', second: '2-digit'
+    }) : '—';
 
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-indigo-900 flex items-center justify-center p-4">
@@ -576,28 +655,36 @@ function App() {
               </div>
             </div>
 
+            {/* Time info */}
             <div className="bg-white/5 rounded-2xl p-4 mb-4 border border-white/10">
-              <div className="grid grid-cols-3 gap-3 text-center">
+              <h3 className="text-white/80 text-xs font-semibold mb-2">🕐 Астрономическое время:</h3>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="bg-white/5 rounded-lg p-2">
+                  <div className="text-white/50 text-[10px]">Начало</div>
+                  <div className="text-white font-mono text-[11px]">{startStr}</div>
+                </div>
+                <div className="bg-white/5 rounded-lg p-2">
+                  <div className="text-white/50 text-[10px]">Окончание</div>
+                  <div className="text-white font-mono text-[11px]">{endStr}</div>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-center mt-2">
                 <div>
-                  <div className="text-white/60 text-[10px] sm:text-xs mb-1">Время</div>
-                  <div className="text-white font-bold text-xs sm:text-sm">{formatTime(totalTime)}</div>
+                  <div className="text-white/60 text-[10px] mb-0.5">Затрачено</div>
+                  <div className="text-white font-bold text-xs">{formatTime(totalTime)}</div>
                 </div>
                 <div>
-                  <div className="text-white/60 text-[10px] sm:text-xs mb-1">Ср. на вопрос</div>
-                  <div className="text-white font-bold text-xs sm:text-sm">{formatTime(Math.round(totalTime / QUESTIONS_PER_TEST))}</div>
-                </div>
-                <div>
-                  <div className="text-white/60 text-[10px] sm:text-xs mb-1">Точность</div>
-                  <div className="text-white font-bold text-xs sm:text-sm">{percentage}%</div>
+                  <div className="text-white/60 text-[10px] mb-0.5">Ср. на вопрос</div>
+                  <div className="text-white font-bold text-xs">{formatTime(Math.round(totalTime / QUESTIONS_PER_TEST))}</div>
                 </div>
               </div>
             </div>
 
             {/* Review answers */}
-            <div className="bg-white/5 rounded-2xl p-4 mb-4 border border-white/10 max-h-48 overflow-y-auto">
+            <div className="bg-white/5 rounded-2xl p-4 mb-4 border border-white/10 max-h-40 overflow-y-auto">
               <h3 className="text-white font-semibold text-xs sm:text-sm mb-2">📋 Обзор ответов:</h3>
               <div className="space-y-1.5">
-                {questions.slice(0, QUESTIONS_PER_TEST).map((q, idx) => {
+                {testQuestions.map((q, idx) => {
                   const isCorrect = answers[idx] === q.correctAnswer;
                   return (
                     <div key={idx} className="flex items-start gap-2 text-xs">
@@ -605,7 +692,7 @@ function App() {
                         {isCorrect ? '✓' : '✗'}
                       </span>
                       <span className="text-white/80 leading-relaxed">
-                        <span className="text-white/50">#{idx + 1}</span> {q.question.substring(0, 55)}...
+                        <span className="text-white/50">#{idx + 1}</span> {q.question.substring(0, 50)}...
                       </span>
                     </div>
                   );
@@ -621,14 +708,14 @@ function App() {
                   className="py-2.5 px-4 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white font-medium rounded-xl transition-all duration-200 text-xs sm:text-sm flex items-center justify-center gap-1.5"
                 >
                   <span>📄</span>
-                  <span>Скачать</span>
+                  <span>Скачать отчёт</span>
                 </button>
                 <button
-                  onClick={shareResults}
+                  onClick={shareReportFile}
                   className="py-2.5 px-4 bg-gradient-to-r from-purple-500 to-pink-600 hover:from-purple-600 hover:to-pink-700 text-white font-medium rounded-xl transition-all duration-200 text-xs sm:text-sm flex items-center justify-center gap-1.5"
                 >
                   <span>📤</span>
-                  <span>{'share' in navigator ? 'Поделиться' : 'Копировать'}</span>
+                  <span>Отправить файл</span>
                 </button>
               </div>
 
@@ -642,7 +729,7 @@ function App() {
               {showExport && (
                 <div className="bg-black/30 rounded-xl p-3 border border-white/10 max-h-60 overflow-y-auto">
                   <pre className="text-white/80 text-[10px] sm:text-xs whitespace-pre-wrap font-mono leading-relaxed">
-                    {getExportText()}
+                    {generateReportText()}
                   </pre>
                 </div>
               )}
