@@ -1,8 +1,63 @@
 import { useState, useEffect, useRef } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { questions, Question } from './data/questions';
+import { riskQuestions } from './data/riskQuestions';
 
 type Screen = 'welcome' | 'share' | 'quiz' | 'result';
+
+export type TopicId = 'funcbez' | 'risk';
+
+interface TopicConfig {
+  id: TopicId;
+  emoji: string;
+  title: string;
+  subtitle: string;
+  program: string;
+  topicsList: string;
+  groupPlaceholder: string;
+  shareText: string;
+  reportThemeLines: string[];
+  reportProgramLines: string[];
+}
+
+const TOPICS: Record<TopicId, TopicConfig> = {
+  funcbez: {
+    id: 'funcbez',
+    emoji: '🛡️',
+    title: 'Тест по функциональной безопасности',
+    subtitle: 'Нормативное обеспечение функциональной безопасности',
+    program: 'Проектирование, эксплуатация и обслуживание оборудования систем противоаварийной автоматической защиты',
+    topicsList: 'МЭК 61508, МЭК 61511, SIL, ПАЗ',
+    groupPlaceholder: 'ПАЗ-2024-01',
+    shareText: 'Приглашаю пройти тест по нормативному обеспечению функциональной безопасности',
+    reportThemeLines: ['  Нормативное обеспечение функциональной', '  безопасности'],
+    reportProgramLines: ['  Проектирование, эксплуатация и обслуживание', '  оборудования систем противоаварийной', '  автоматической защиты (ПАЗ)'],
+  },
+  risk: {
+    id: 'risk',
+    emoji: '⚠️',
+    title: 'Тест по управлению риском',
+    subtitle: 'Управление риском в области промышленной безопасности на опасных производственных объектах (ОПО)',
+    program: 'Идентификация опасностей, оценка и управление рисками аварий на опасных производственных объектах (ОПО)',
+    topicsList: '116-ФЗ, ОПО, анализ риска, HAZOP, FTA/ETA, LOPA, ALARP',
+    groupPlaceholder: 'УР-2024-01',
+    shareText: 'Приглашаю пройти тест по управлению риском в промышленной безопасности',
+    reportThemeLines: ['  Управление риском в промышленной', '  безопасности'],
+    reportProgramLines: ['  Идентификация опасностей, оценка и', '  управление рисками аварий на опасных', '  производственных объектах (ОПО)'],
+  },
+};
+
+function detectTopic(): TopicId {
+  if (typeof window === 'undefined') return 'funcbez';
+  const params = new URLSearchParams(window.location.search);
+  const topicParam = (params.get('topic') || params.get('t') || '').toLowerCase();
+  if (topicParam === 'risk' || topicParam === 'pbrisk' || topicParam === 'управлениериском') return 'risk';
+  if (topicParam === 'funcbez') return 'funcbez';
+  // Also support path-based access like /risk/
+  const pathname = window.location.pathname.toLowerCase();
+  if (/\/risk\/?$/.test(pathname)) return 'risk';
+  return 'funcbez';
+}
 
 function generateSessionCode(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -22,11 +77,14 @@ function shuffleArray<T>(array: T[]): T[] {
   return shuffled;
 }
 
-function getRandomQuestions(count: number): Question[] {
-  return shuffleArray(questions).slice(0, count);
+function getRandomQuestions(pool: Question[], count: number): Question[] {
+  return shuffleArray(pool).slice(0, count);
 }
 
 function App() {
+  const [topicId] = useState<TopicId>(detectTopic());
+  const topic = TOPICS[topicId];
+  const questionPool: Question[] = topicId === 'risk' ? riskQuestions : questions;
   const [screen, setScreen] = useState<Screen>('welcome');
   const [testQuestions, setTestQuestions] = useState<Question[]>([]);
   const [currentQuestion, setCurrentQuestion] = useState(0);
@@ -66,7 +124,7 @@ function App() {
 
   const startQuiz = () => {
     if (!userName.trim()) return;
-    const randomQs = getRandomQuestions(QUESTIONS_PER_TEST);
+    const randomQs = getRandomQuestions(questionPool, QUESTIONS_PER_TEST);
     setTestQuestions(randomQs);
     setAnswers(new Array(QUESTIONS_PER_TEST).fill(null));
     setScreen('quiz');
@@ -158,19 +216,18 @@ function App() {
     text += `     ОТЧЁТ О РЕЗУЛЬТАТАХ ТЕСТИРОВАНИЯ\n`;
     text += `════════════════════════════════════════════════\n\n`;
     text += `ТЕМА:\n`;
-    text += `  Нормативное обеспечение функциональной\n`;
-    text += `  безопасности\n\n`;
+    topic.reportThemeLines.forEach((line) => { text += `${line}\n`; });
+    text += `\n`;
     text += `ПРОГРАММА:\n`;
-    text += `  Проектирование, эксплуатация и обслуживание\n`;
-    text += `  оборудования систем противоаварийной\n`;
-    text += `  автоматической защиты (ПАЗ)\n\n`;
+    topic.reportProgramLines.forEach((line) => { text += `${line}\n`; });
+    text += `\n`;
     text += `────────────────────────────────────────────────\n`;
     text += `ИНФОРМАЦИЯ ОБ УЧАСТНИКЕ:\n`;
     text += `────────────────────────────────────────────────\n`;
     text += `  ФИО:          ${userName}\n`;
     text += `  Группа:       ${groupNumber || 'не указана'}\n`;
     text += `  Код сессии:   ${sessionCode}\n`;
-    text += `  Всего вопросов в базе: ${questions.length}\n`;
+    text += `  Всего вопросов в базе: ${questionPool.length}\n`;
     text += `  Вопросов в тесте: ${QUESTIONS_PER_TEST} (выбраны случайно)\n\n`;
     text += `────────────────────────────────────────────────\n`;
     text += `АСТРОНОМИЧЕСКОЕ ВРЕМЯ:\n`;
@@ -281,30 +338,30 @@ function App() {
         <div className="max-w-lg w-full">
           <div className="bg-white/10 backdrop-blur-lg rounded-3xl p-5 sm:p-8 border border-white/20 shadow-2xl">
             <div className="text-center mb-5">
-              <div className="text-5xl mb-3">🛡️</div>
+              <div className="text-5xl mb-3">{topic.emoji}</div>
               <h1 className="text-lg sm:text-2xl font-bold text-white mb-2">
-                Тест по функциональной безопасности
+                {topic.title}
               </h1>
               <p className="text-blue-200 text-xs sm:text-base leading-relaxed">
-                Нормативное обеспечение функциональной безопасности
+                {topic.subtitle}
               </p>
             </div>
 
             <div className="bg-white/5 rounded-2xl p-3 sm:p-4 mb-4 border border-white/10">
               <h2 className="text-white font-semibold text-xs sm:text-sm mb-2">📋 Программа:</h2>
               <p className="text-blue-100 text-xs leading-relaxed">
-                Проектирование, эксплуатация и обслуживание оборудования систем противоаварийной автоматической защиты
+                {topic.program}
               </p>
             </div>
 
             <div className="bg-white/5 rounded-2xl p-3 sm:p-4 mb-4 border border-white/10">
               <h3 className="text-white font-semibold text-xs sm:text-sm mb-2">📌 Информация о тесте:</h3>
               <ul className="text-blue-100 text-xs space-y-1">
-                <li>• База вопросов: {questions.length} вопросов</li>
+                <li>• База вопросов: {questionPool.length} вопросов</li>
                 <li>• В тесте: {QUESTIONS_PER_TEST} вопросов (случайный выбор)</li>
                 <li>• Время на вопрос: {TIME_PER_QUESTION} секунд</li>
                 <li>• Проходной балл: 60%</li>
-                <li>• Темы: МЭК 61508, МЭК 61511, SIL, ПАЗ</li>
+                <li>• Темы: {topic.topicsList}</li>
               </ul>
             </div>
 
@@ -335,7 +392,7 @@ function App() {
                   type="text"
                   value={groupNumber}
                   onChange={(e) => setGroupNumber(e.target.value)}
-                  placeholder="ПАЗ-2024-01"
+                  placeholder={topic.groupPlaceholder}
                   className="w-full px-4 py-2.5 rounded-xl bg-white/10 border border-white/20 text-white placeholder-blue-300/50 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent transition text-sm"
                 />
               </div>
@@ -448,8 +505,8 @@ function App() {
                 <button
                   onClick={() => {
                     navigator.share({
-                      title: 'Тест по функциональной безопасности',
-                      text: 'Приглашаю пройти тест по нормативному обеспечению функциональной безопасности',
+                      title: topic.title,
+                      text: topic.shareText,
                       url: currentUrl
                     }).catch(() => {});
                   }}
